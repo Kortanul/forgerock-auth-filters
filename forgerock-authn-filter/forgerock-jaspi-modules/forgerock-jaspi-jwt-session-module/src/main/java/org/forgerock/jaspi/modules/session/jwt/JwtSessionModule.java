@@ -11,13 +11,37 @@
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
  * information: "Portions copyright [year] [name of copyright owner]".
  *
- * Copyright 2013-2014 ForgeRock AS.
+ * Copyright 2013-2016 ForgeRock AS.
  */
 
 package org.forgerock.jaspi.modules.session.jwt;
 
 import static org.forgerock.caf.http.Cookie.*;
 import static org.forgerock.jaspi.runtime.AuditTrail.AUDIT_SESSION_ID_KEY;
+
+import java.io.IOException;
+import java.security.Key;
+import java.util.Calendar;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import javax.security.auth.Subject;
+import javax.security.auth.callback.Callback;
+import javax.security.auth.callback.CallbackHandler;
+import javax.security.auth.callback.UnsupportedCallbackException;
+import javax.security.auth.message.AuthException;
+import javax.security.auth.message.AuthStatus;
+import javax.security.auth.message.MessageInfo;
+import javax.security.auth.message.MessagePolicy;
+import javax.security.auth.message.callback.CallerPrincipalCallback;
+import javax.security.auth.message.module.ServerAuthModule;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 import org.forgerock.auth.common.DebugLogger;
 import org.forgerock.caf.http.Cookie;
@@ -32,31 +56,6 @@ import org.forgerock.json.jose.jwe.JweHeader;
 import org.forgerock.json.jose.jwt.Jwt;
 import org.forgerock.json.jose.jwt.JwtClaimsSet;
 import org.forgerock.json.jose.utils.KeystoreManager;
-
-import javax.security.auth.Subject;
-import javax.security.auth.callback.Callback;
-import javax.security.auth.callback.CallbackHandler;
-import javax.security.auth.callback.UnsupportedCallbackException;
-import javax.security.auth.message.AuthException;
-import javax.security.auth.message.AuthStatus;
-import javax.security.auth.message.MessageInfo;
-import javax.security.auth.message.MessagePolicy;
-import javax.security.auth.message.callback.CallerPrincipalCallback;
-import javax.security.auth.message.module.ServerAuthModule;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.security.interfaces.RSAPrivateKey;
-import java.security.interfaces.RSAPublicKey;
-import java.util.Calendar;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
 
 /**
  * A JASPI Session Module which creates a JWT when securing the response from a successful authentication and sets it
@@ -328,7 +327,7 @@ public class JwtSessionModule implements ServerAuthModule {
         KeystoreManager keystoreManager = new KeystoreManager(keystoreType,
                 keystoreFile, keystorePassword);
 
-        RSAPrivateKey privateKey = (RSAPrivateKey) keystoreManager.getPrivateKey(keyAlias, privateKeyPassword);
+        Key privateKey = keystoreManager.getPrivateKey(keyAlias, privateKeyPassword);
 
         EncryptedJwt jwt = jwtBuilderFactory.reconstruct(sessionJwt, EncryptedJwt.class);
         jwt.decrypt(privateKey);
@@ -389,7 +388,7 @@ public class JwtSessionModule implements ServerAuthModule {
         KeystoreManager keystoreManager = new KeystoreManager(keystoreType,
                 keystoreFile, keystorePassword);
 
-        RSAPublicKey publicKey = (RSAPublicKey) keystoreManager.getPublicKey(keyAlias);
+        Key publicKey = keystoreManager.getPublicKey(keyAlias);
 
         String jwtString = rebuildEncryptedJwt((EncryptedJwt) jwt, publicKey);
 
@@ -403,7 +402,7 @@ public class JwtSessionModule implements ServerAuthModule {
      * @param publicKey The public key.
      * @return The Session Jwt.
      */
-    protected String rebuildEncryptedJwt(EncryptedJwt jwt, RSAPublicKey publicKey) {
+    protected String rebuildEncryptedJwt(EncryptedJwt jwt, Key publicKey) {
         return new EncryptedJwt((JweHeader) jwt.getHeader(), jwt.getClaimsSet(), publicKey).build();
     }
 
@@ -463,7 +462,7 @@ public class JwtSessionModule implements ServerAuthModule {
         KeystoreManager keystoreManager = new KeystoreManager(keystoreType,
                 keystoreFile, keystorePassword);
 
-        RSAPublicKey publicKey = (RSAPublicKey) keystoreManager.getPublicKey(keyAlias);
+        Key publicKey = keystoreManager.getPublicKey(keyAlias);
 
         Calendar calendar = Calendar.getInstance();
         calendar.setTime(new Date());
