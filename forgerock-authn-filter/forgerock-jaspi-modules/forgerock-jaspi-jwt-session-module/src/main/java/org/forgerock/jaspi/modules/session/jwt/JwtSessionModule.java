@@ -11,7 +11,7 @@
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
  * information: "Portions copyright [year] [name of copyright owner]".
  *
- * Copyright 2013-2014 ForgeRock AS.
+ * Copyright 2013-2016 ForgeRock AS.
  */
 
 package org.forgerock.jaspi.modules.session.jwt;
@@ -21,13 +21,16 @@ import org.forgerock.jaspi.logging.LogFactory;
 import org.forgerock.jaspi.runtime.JaspiRuntime;
 import org.forgerock.json.jose.builders.JwtBuilderFactory;
 import org.forgerock.json.jose.exceptions.JweDecryptionException;
-import org.forgerock.json.jose.jwe.EncryptedJwt;
 import org.forgerock.json.jose.jwe.EncryptionMethod;
 import org.forgerock.json.jose.jwe.JweAlgorithm;
-import org.forgerock.json.jose.jwe.JweHeader;
+import org.forgerock.json.jose.jws.JwsAlgorithm;
+import org.forgerock.json.jose.jws.SignedEncryptedJwt;
+import org.forgerock.json.jose.jws.handlers.HmacSigningHandler;
+import org.forgerock.json.jose.jws.handlers.SigningHandler;
 import org.forgerock.json.jose.jwt.Jwt;
 import org.forgerock.json.jose.jwt.JwtClaimsSet;
 import org.forgerock.json.jose.utils.KeystoreManager;
+import org.forgerock.util.encode.Base64;
 
 import javax.security.auth.Subject;
 import javax.security.auth.callback.Callback;
@@ -43,8 +46,10 @@ import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.security.Key;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
@@ -83,6 +88,9 @@ public class JwtSessionModule implements ServerAuthModule {
     public static final String JWT_VALIDATED_KEY = "jwtValidated";
     /** Whether the JWT should persist between browser restarts property key. */
     public static final String BROWSER_SESSION_ONLY_KEY = "sessionOnly";
+   /** HMAC signing key. */
+   public static final String HMAC_SIGNING_KEY = "hmacKey";
+   private static final JwsAlgorithm SIGNING_ALGORITHM = JwsAlgorithm.HS256;
 
     private final JwtBuilderFactory jwtBuilderFactory;
 
@@ -96,6 +104,7 @@ public class JwtSessionModule implements ServerAuthModule {
     private int tokenIdleTime;
     private int maxTokenLife;
     private boolean browserSessionOnly;
+    private SigningHandler signingHandler;
 
     /**
      * Constructs an instance of the JwtSessionModule.
@@ -143,6 +152,12 @@ public class JwtSessionModule implements ServerAuthModule {
         this.maxTokenLife = Integer.parseInt(maxTokenLife);
         Boolean sessionOnly = (Boolean) options.get(BROWSER_SESSION_ONLY_KEY);
         this.browserSessionOnly = sessionOnly == null ? false : sessionOnly;
+        final byte[] signingKey = Base64.decode((String) options.get(HMAC_SIGNING_KEY));
+        if (signingKey == null || signingKey.length < 32) {
+            throw new AuthException("Signing key must be at least 256-bits base64 encoded");
+        }
+        this.signingHandler = new HmacSigningHandler(signingKey);
+        Arrays.fill(signingKey, (byte) 0);
     }
 
     /**
@@ -298,7 +313,10 @@ public class JwtSessionModule implements ServerAuthModule {
 
         RSAPrivateKey privateKey = (RSAPrivateKey) keystoreManager.getPrivateKey(keyAlias, privateKeyPassword);
 
-        EncryptedJwt jwt = jwtBuilderFactory.reconstruct(sessionJwt, EncryptedJwt.class);
+        SignedEncryptedJwt jwt = jwtBuilderFactory.reconstruct(sessionJwt, SignedEncryptedJwt.class);
+        if (!jwt.verify(signingHandler)) {
+            return null;
+        }
         jwt.decrypt(privateKey);
 
         Date expirationTime = jwt.getClaimsSet().getExpirationTime();
@@ -359,7 +377,7 @@ public class JwtSessionModule implements ServerAuthModule {
 
         RSAPublicKey publicKey = (RSAPublicKey) keystoreManager.getPublicKey(keyAlias);
 
-        String jwtString = rebuildEncryptedJwt((EncryptedJwt) jwt, publicKey);
+        String jwtString = rebuildEncryptedJwt(jwt, publicKey);
 
         Cookie cookie = new Cookie(JWT_SESSION_COOKIE_NAME, jwtString);
         cookie.setPath("/");
@@ -375,8 +393,8 @@ public class JwtSessionModule implements ServerAuthModule {
      * @param publicKey The public key.
      * @return The Session Jwt.
      */
-    protected String rebuildEncryptedJwt(EncryptedJwt jwt, RSAPublicKey publicKey) {
-        return new EncryptedJwt((JweHeader) jwt.getHeader(), jwt.getClaimsSet(), publicKey).build();
+    protected String rebuildEncryptedJwt(Jwt jwt, Key publicKey) {
+        return buildJwtString(jwt.getClaimsSet(), publicKey);
     }
 
     /**
@@ -459,20 +477,24 @@ public class JwtSessionModule implements ServerAuthModule {
                 .claims(jwtParameters)
                 .build();
 
-        String jwtString = jwtBuilderFactory
+        String jwtString = buildJwtString(claimsSet, publicKey);
+
+        Cookie cookie = new Cookie(JWT_SESSION_COOKIE_NAME, jwtString);
+        cookie.setPath("/");
+        setCookieMaxAge(cookie, now, exp);
+        return cookie;
+    }
+
+    private String buildJwtString(JwtClaimsSet claimsSet, Key publicKey) {
+        return jwtBuilderFactory
                 .jwe(publicKey)
                 .headers()
                 .alg(JweAlgorithm.RSAES_PKCS1_V1_5)
                 .enc(EncryptionMethod.A128CBC_HS256)
                 .done()
                 .claims(claimsSet)
+                .sign(signingHandler, SIGNING_ALGORITHM)
                 .build();
-
-
-        Cookie cookie = new Cookie(JWT_SESSION_COOKIE_NAME, jwtString);
-        cookie.setPath("/");
-        setCookieMaxAge(cookie, now, exp);
-        return cookie;
     }
 
     /**
