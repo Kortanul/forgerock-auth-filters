@@ -33,9 +33,9 @@
     </properties>
 
     <scm>
-        <url>https://svn.forgerock.org/commons/forgerock-auth-filters/branches/1.2.x</url>
-        <connection>scm:svn:https://svn.forgerock.org/commons/forgerock-auth-filters/branches/1.2.x</connection>
-        <developerConnection>scm:svn:https://svn.forgerock.org/commons/forgerock-auth-filters/branches/1.2.x</developerConnection>
+        <connection>scm:git:ssh://git@stash.forgerock.org:7999/commons/forgerock-auth-filters.git</connection>
+        <developerConnection>scm:git:ssh://git@stash.forgerock.org:7999/commons/forgerock-auth-filters.git</developerConnection>
+        <url>http://stash.forgerock.org/projects/COMMONS/repos/forgerock-auth-filters/browse</url>
     </scm>
     <ciManagement>
         <system>jenkins</system>
