@@ -11,23 +11,32 @@
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
  * information: "Portions copyright [year] [name of copyright owner]".
  *
- * Copyright 2013-2014 ForgeRock AS.
+ * Copyright 2013-2016 ForgeRock AS.
  */
 
 package org.forgerock.jaspi.modules.session.jwt;
 
 import org.forgerock.jaspi.runtime.JaspiRuntime;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.*;
+import static org.testng.Assert.*;
+
 import org.forgerock.json.jose.builders.EncryptedJwtBuilder;
 import org.forgerock.json.jose.builders.JweHeaderBuilder;
 import org.forgerock.json.jose.builders.JwtBuilderFactory;
 import org.forgerock.json.jose.builders.JwtClaimsSetBuilder;
+import org.forgerock.json.jose.builders.SignedEncryptedJwtBuilder;
 import org.forgerock.json.jose.exceptions.JweDecryptionException;
-import org.forgerock.json.jose.jwe.EncryptedJwt;
 import org.forgerock.json.jose.jwe.EncryptionMethod;
 import org.forgerock.json.jose.jwe.JweAlgorithm;
+import org.forgerock.json.jose.jws.JwsAlgorithm;
+import org.forgerock.json.jose.jws.SignedEncryptedJwt;
+import org.forgerock.json.jose.jws.handlers.HmacSigningHandler;
 import org.forgerock.json.jose.jwt.Algorithm;
 import org.forgerock.json.jose.jwt.Jwt;
 import org.forgerock.json.jose.jwt.JwtClaimsSet;
+import org.forgerock.util.encode.Base64;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Matchers;
 import org.testng.annotations.BeforeMethod;
@@ -49,26 +58,20 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.security.Key;
-import java.security.interfaces.RSAPublicKey;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
-import static org.mockito.BDDMockito.given;
-import static org.mockito.Matchers.anyObject;
-import static org.mockito.Mockito.anyMap;
-import static org.mockito.Mockito.anyString;
-import static org.mockito.Mockito.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
-import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertNotEquals;
-import static org.testng.Assert.assertNotNull;
-import static org.testng.Assert.assertNull;
-
 public class JwtSessionModuleTest {
+
+    private static final String HMAC_KEY;
+    static {
+        byte[] keyValue = new byte[32];
+        Arrays.fill(keyValue, (byte) 42);
+        HMAC_KEY = Base64.encode(keyValue);
+    }
 
     private JwtSessionModule jwtSessionModule;
 
@@ -81,7 +84,7 @@ public class JwtSessionModuleTest {
 
         jwtSessionModule = new JwtSessionModule(jwtBuilderFactory) {
             @Override
-            protected String rebuildEncryptedJwt(EncryptedJwt jwt, RSAPublicKey publicKey) {
+            protected String rebuildEncryptedJwt(Jwt jwt, Key publicKey) {
                 return "REBUILT_ENCRYPTED_JWT";
             }
         };
@@ -113,7 +116,7 @@ public class JwtSessionModuleTest {
         options.put(JwtSessionModule.KEYSTORE_PASSWORD_KEY, "password");
         options.put(JwtSessionModule.TOKEN_IDLE_TIME_CLAIM_KEY, idleTimeout != null ? idleTimeout.toString() : null);
         options.put(JwtSessionModule.MAX_TOKEN_LIFE_KEY, maxLife != null ? maxLife.toString() : null);
-
+        options.put(JwtSessionModule.HMAC_SIGNING_KEY, HMAC_KEY);
         return options;
     }
 
@@ -221,6 +224,47 @@ public class JwtSessionModuleTest {
     }
 
     @Test
+    public void shouldValidateRequestWhenJwtSessionCookieHmacIsInvalid() throws Exception {
+        //Given
+        MessagePolicy requestPolicy = null;
+        MessagePolicy responsePolicy = null;
+        CallbackHandler callbackHandler = null;
+        Map<String, Object> options = getOptionsMap(1, 2);
+
+        jwtSessionModule.initialize(requestPolicy, responsePolicy, callbackHandler, options);
+
+        MessageInfo messageInfo = mock(MessageInfo.class);
+        Subject clientSubject = null;
+        Subject serviceSubject = null;
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        Cookie cookie1 = mock(Cookie.class);
+        Cookie cookie2 = mock(Cookie.class);
+        Cookie jwtSessionCookie = mock(Cookie.class);
+        Cookie[] cookies = new Cookie[]{cookie1, jwtSessionCookie, cookie2};
+        SignedEncryptedJwt encryptedJwt = mock(SignedEncryptedJwt.class);
+
+        given(messageInfo.getRequestMessage()).willReturn(request);
+        given(messageInfo.getResponseMessage()).willReturn(response);
+
+        given(request.getCookies()).willReturn(cookies);
+        given(cookie1.getName()).willReturn("COOKIE1");
+        given(cookie2.getName()).willReturn("COOKIE2");
+        given(jwtSessionCookie.getName()).willReturn("session-jwt");
+        given(jwtSessionCookie.getValue()).willReturn("ENCRYPTED_JWT");
+        given(jwtBuilderFactory.reconstruct("ENCRYPTED_JWT", SignedEncryptedJwt.class)).willReturn(encryptedJwt);
+        given(encryptedJwt.verify(any(HmacSigningHandler.class))).willReturn(false);
+
+        //When
+        AuthStatus authStatus = jwtSessionModule.validateRequest(messageInfo, clientSubject, serviceSubject);
+
+        //Then
+        assertEquals(authStatus, AuthStatus.SEND_FAILURE);
+        verifyZeroInteractions(response);
+
+    }
+
+    @Test
     public void shouldValidateRequestWhenJwtSessionCookiePresentButEmptyString() throws AuthException,
             UnsupportedEncodingException {
 
@@ -280,7 +324,7 @@ public class JwtSessionModuleTest {
         Cookie cookie2 = mock(Cookie.class);
         Cookie jwtSessionCookie = mock(Cookie.class);
         Cookie[] cookies = new Cookie[]{cookie1, jwtSessionCookie, cookie2};
-        EncryptedJwt encryptedJwt = mock(EncryptedJwt.class);
+        SignedEncryptedJwt encryptedJwt = mock(SignedEncryptedJwt.class);
         JwtClaimsSet claimsSet = mock(JwtClaimsSet.class);
 
         Calendar calendar = Calendar.getInstance();
@@ -301,7 +345,7 @@ public class JwtSessionModuleTest {
         given(cookie2.getName()).willReturn("COOKIE2");
         given(jwtSessionCookie.getName()).willReturn("session-jwt");
         given(jwtSessionCookie.getValue()).willReturn("SESSION_JWT");
-        given(jwtBuilderFactory.reconstruct("SESSION_JWT", EncryptedJwt.class)).willReturn(encryptedJwt);
+        given(jwtBuilderFactory.reconstruct("SESSION_JWT", SignedEncryptedJwt.class)).willReturn(encryptedJwt);
         given(encryptedJwt.getClaimsSet()).willReturn(claimsSet);
         given(claimsSet.getExpirationTime()).willReturn(expiryTime);
         given(claimsSet.getClaim(JwtSessionModule.TOKEN_IDLE_TIME_CLAIM_KEY, Integer.class))
@@ -334,7 +378,7 @@ public class JwtSessionModuleTest {
         given(jwtSessionCookie.getName()).willReturn("session-jwt");
         given(jwtSessionCookie.getValue()).willReturn("SESSION_JWT");
 
-        given(jwtBuilderFactory.reconstruct("SESSION_JWT", EncryptedJwt.class))
+        given(jwtBuilderFactory.reconstruct("SESSION_JWT", SignedEncryptedJwt.class))
                 .willThrow(JweDecryptionException.class);
 
         //When
@@ -365,7 +409,7 @@ public class JwtSessionModuleTest {
         Cookie cookie2 = mock(Cookie.class);
         Cookie jwtSessionCookie = mock(Cookie.class);
         Cookie[] cookies = new Cookie[]{cookie1, jwtSessionCookie, cookie2};
-        EncryptedJwt encryptedJwt = mock(EncryptedJwt.class);
+        SignedEncryptedJwt encryptedJwt = mock(SignedEncryptedJwt.class);
         JwtClaimsSet claimsSet = mock(JwtClaimsSet.class);
 
         Calendar calendar = Calendar.getInstance();
@@ -386,7 +430,7 @@ public class JwtSessionModuleTest {
         given(cookie2.getName()).willReturn("COOKIE2");
         given(jwtSessionCookie.getName()).willReturn("session-jwt");
         given(jwtSessionCookie.getValue()).willReturn("SESSION_JWT");
-        given(jwtBuilderFactory.reconstruct("SESSION_JWT", EncryptedJwt.class)).willReturn(encryptedJwt);
+        given(jwtBuilderFactory.reconstruct("SESSION_JWT", SignedEncryptedJwt.class)).willReturn(encryptedJwt);
         given(encryptedJwt.getClaimsSet()).willReturn(claimsSet);
         given(claimsSet.getExpirationTime()).willReturn(expiryTime);
         given(claimsSet.getClaim(JwtSessionModule.TOKEN_IDLE_TIME_CLAIM_KEY, Integer.class))
@@ -423,7 +467,7 @@ public class JwtSessionModuleTest {
         Cookie cookie2 = mock(Cookie.class);
         Cookie jwtSessionCookie = mock(Cookie.class);
         Cookie[] cookies = new Cookie[]{cookie1, jwtSessionCookie, cookie2};
-        EncryptedJwt encryptedJwt = mock(EncryptedJwt.class);
+        SignedEncryptedJwt encryptedJwt = mock(SignedEncryptedJwt.class);
         JwtClaimsSet claimsSet = mock(JwtClaimsSet.class);
 
         Calendar calendar = Calendar.getInstance();
@@ -450,7 +494,8 @@ public class JwtSessionModuleTest {
         given(cookie2.getName()).willReturn("COOKIE2");
         given(jwtSessionCookie.getName()).willReturn("session-jwt");
         given(jwtSessionCookie.getValue()).willReturn("SESSION_JWT");
-        given(jwtBuilderFactory.reconstruct("SESSION_JWT", EncryptedJwt.class)).willReturn(encryptedJwt);
+        given(jwtBuilderFactory.reconstruct("SESSION_JWT", SignedEncryptedJwt.class)).willReturn(encryptedJwt);
+        given(encryptedJwt.verify(any(HmacSigningHandler.class))).willReturn(true);
         given(encryptedJwt.getClaimsSet()).willReturn(claimsSet);
         given(claimsSet.getExpirationTime()).willReturn(expiryTime);
         given(claimsSet.getClaim(JwtSessionModule.TOKEN_IDLE_TIME_CLAIM_KEY, Integer.class))
@@ -501,7 +546,7 @@ public class JwtSessionModuleTest {
         Cookie cookie2 = mock(Cookie.class);
         Cookie jwtSessionCookie = mock(Cookie.class);
         Cookie[] cookies = new Cookie[]{cookie1, jwtSessionCookie, cookie2};
-        EncryptedJwt encryptedJwt = mock(EncryptedJwt.class);
+        SignedEncryptedJwt encryptedJwt = mock(SignedEncryptedJwt.class);
         JwtClaimsSet claimsSet = mock(JwtClaimsSet.class);
 
         Calendar calendar = Calendar.getInstance();
@@ -529,7 +574,8 @@ public class JwtSessionModuleTest {
         given(cookie2.getName()).willReturn("COOKIE2");
         given(jwtSessionCookie.getName()).willReturn("session-jwt");
         given(jwtSessionCookie.getValue()).willReturn("SESSION_JWT");
-        given(jwtBuilderFactory.reconstruct("SESSION_JWT", EncryptedJwt.class)).willReturn(encryptedJwt);
+        given(jwtBuilderFactory.reconstruct("SESSION_JWT", SignedEncryptedJwt.class)).willReturn(encryptedJwt);
+        given(encryptedJwt.verify(any(HmacSigningHandler.class))).willReturn(true);
         given(encryptedJwt.getClaimsSet()).willReturn(claimsSet);
         given(claimsSet.getExpirationTime()).willReturn(expiryTime);
         given(claimsSet.getClaim(JwtSessionModule.TOKEN_IDLE_TIME_CLAIM_KEY, Integer.class))
@@ -646,6 +692,7 @@ public class JwtSessionModuleTest {
         given(messageInfo.getMap()).willReturn(map);
 
         EncryptedJwtBuilder encryptedJwtBuilder = mock(EncryptedJwtBuilder.class);
+        SignedEncryptedJwtBuilder signedEncryptedJwtBuilder = mock(SignedEncryptedJwtBuilder.class);
         JweHeaderBuilder jweHeaderBuilder = mock(JweHeaderBuilder.class);
         JwtClaimsSetBuilder jwtClaimsSetBuilder = mock(JwtClaimsSetBuilder.class);
         JwtClaimsSet claimsSet = mock(JwtClaimsSet.class);
@@ -665,7 +712,9 @@ public class JwtSessionModuleTest {
         given(jwtClaimsSetBuilder.claims(anyMap())).willReturn(jwtClaimsSetBuilder);
         given(jwtClaimsSetBuilder.build()).willReturn(claimsSet);
         given(encryptedJwtBuilder.claims(claimsSet)).willReturn(encryptedJwtBuilder);
-        given(encryptedJwtBuilder.build()).willReturn("ENCRYPTED_JWT");
+        given(encryptedJwtBuilder.sign(any(HmacSigningHandler.class), eq(JwsAlgorithm.HS256)))
+                .willReturn(signedEncryptedJwtBuilder);
+        given(signedEncryptedJwtBuilder.build()).willReturn("ENCRYPTED_JWT");
 
         //When
         AuthStatus authStatus = jwtSessionModule.secureResponse(messageInfo, serviceSubject);
@@ -732,6 +781,7 @@ public class JwtSessionModuleTest {
         given(messageInfo.getMap()).willReturn(map);
 
         EncryptedJwtBuilder encryptedJwtBuilder = mock(EncryptedJwtBuilder.class);
+        SignedEncryptedJwtBuilder signedEncryptedJwtBuilder = mock(SignedEncryptedJwtBuilder.class);
         JweHeaderBuilder jweHeaderBuilder = mock(JweHeaderBuilder.class);
         JwtClaimsSetBuilder jwtClaimsSetBuilder = mock(JwtClaimsSetBuilder.class);
         JwtClaimsSet claimsSet = mock(JwtClaimsSet.class);
@@ -751,7 +801,9 @@ public class JwtSessionModuleTest {
         given(jwtClaimsSetBuilder.claims(anyMap())).willReturn(jwtClaimsSetBuilder);
         given(jwtClaimsSetBuilder.build()).willReturn(claimsSet);
         given(encryptedJwtBuilder.claims(claimsSet)).willReturn(encryptedJwtBuilder);
-        given(encryptedJwtBuilder.build()).willReturn("ENCRYPTED_JWT");
+        given(encryptedJwtBuilder.sign(any(HmacSigningHandler.class), eq(JwsAlgorithm.HS256)))
+                .willReturn(signedEncryptedJwtBuilder);
+        given(signedEncryptedJwtBuilder.build()).willReturn("ENCRYPTED_JWT");
 
         //When
         AuthStatus authStatus = jwtSessionModule.secureResponse(messageInfo, serviceSubject);
@@ -857,6 +909,7 @@ public class JwtSessionModuleTest {
         given(messageInfo.getMap()).willReturn(map);
 
         EncryptedJwtBuilder encryptedJwtBuilder = mock(EncryptedJwtBuilder.class);
+        SignedEncryptedJwtBuilder signedEncryptedJwtBuilder = mock(SignedEncryptedJwtBuilder.class);
         JweHeaderBuilder jweHeaderBuilder = mock(JweHeaderBuilder.class);
         JwtClaimsSetBuilder jwtClaimsSetBuilder = mock(JwtClaimsSetBuilder.class);
         JwtClaimsSet claimsSet = mock(JwtClaimsSet.class);
@@ -876,7 +929,9 @@ public class JwtSessionModuleTest {
         given(jwtClaimsSetBuilder.claims(anyMap())).willReturn(jwtClaimsSetBuilder);
         given(jwtClaimsSetBuilder.build()).willReturn(claimsSet);
         given(encryptedJwtBuilder.claims(claimsSet)).willReturn(encryptedJwtBuilder);
-        given(encryptedJwtBuilder.build()).willReturn("ENCRYPTED_JWT");
+        given(encryptedJwtBuilder.sign(any(HmacSigningHandler.class), eq(JwsAlgorithm.HS256)))
+                .willReturn(signedEncryptedJwtBuilder);
+        given(signedEncryptedJwtBuilder.build()).willReturn("ENCRYPTED_JWT");
 
         //When
         AuthStatus authStatus = jwtSessionModule.secureResponse(messageInfo, serviceSubject);
@@ -943,6 +998,7 @@ public class JwtSessionModuleTest {
         given(messageInfo.getMap()).willReturn(map);
 
         EncryptedJwtBuilder encryptedJwtBuilder = mock(EncryptedJwtBuilder.class);
+        SignedEncryptedJwtBuilder signedEncryptedJwtBuilder = mock(SignedEncryptedJwtBuilder.class);
         JweHeaderBuilder jweHeaderBuilder = mock(JweHeaderBuilder.class);
         JwtClaimsSetBuilder jwtClaimsSetBuilder = mock(JwtClaimsSetBuilder.class);
         JwtClaimsSet claimsSet = mock(JwtClaimsSet.class);
@@ -962,7 +1018,9 @@ public class JwtSessionModuleTest {
         given(jwtClaimsSetBuilder.claims(anyMap())).willReturn(jwtClaimsSetBuilder);
         given(jwtClaimsSetBuilder.build()).willReturn(claimsSet);
         given(encryptedJwtBuilder.claims(claimsSet)).willReturn(encryptedJwtBuilder);
-        given(encryptedJwtBuilder.build()).willReturn("ENCRYPTED_JWT");
+        given(encryptedJwtBuilder.sign(any(HmacSigningHandler.class), eq(JwsAlgorithm.HS256)))
+                .willReturn(signedEncryptedJwtBuilder);
+        given(signedEncryptedJwtBuilder.build()).willReturn("ENCRYPTED_JWT");
 
         //When
         AuthStatus authStatus = jwtSessionModule.secureResponse(messageInfo, serviceSubject);
