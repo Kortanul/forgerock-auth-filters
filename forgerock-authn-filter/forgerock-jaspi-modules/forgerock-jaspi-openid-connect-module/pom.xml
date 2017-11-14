@@ -13,10 +13,9 @@
 * information: "Portions copyright [year] [name of copyright owner]".
 *
 * Copyright 2014-2015 ForgeRock AS.
+* Portions Copyright 2017 Wren Security.
 -->
-
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
@@ -28,8 +27,8 @@
     <artifactId>forgerock-jaspi-openid-connect-module</artifactId>
     <packaging>bundle</packaging>
 
-    <name>ForgeRock JASPI (JSR-196) OpenID Connect Authentication Module</name>
-    <description>ForgeRock JASPI (JSR-196) OpenID Connect Authentication Module</description>
+    <name>Wren Security Commons Authn. - JASPI (JSR-196) OIDC Module</name>
+    <description>Wren Security JASPI (JSR-196) OpenID Connect Authentication Module</description>
 
     <build>
         <plugins>
@@ -46,10 +45,10 @@
             <groupId>org.forgerock.commons</groupId>
             <artifactId>forgerock-jaspi-runtime</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.forgerock.commons</groupId>
             <artifactId>json-web-token</artifactId>
         </dependency>
     </dependencies>
-
 </project>
