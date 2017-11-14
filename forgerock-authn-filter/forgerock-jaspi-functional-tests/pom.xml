@@ -13,6 +13,7 @@
   * information: "Portions copyright [year] [name of copyright owner]".
   *
   * Copyright 2014-2015 ForgeRock AS.
+  * Portions Copyright 2017 Wren Security.
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
@@ -25,8 +26,10 @@
 
     <artifactId>forgerock-jaspi-functional-tests</artifactId>
 
-    <name>ForgeRock JASPI (JSR-196) Functional Tests</name>
-    <description>Functional Test framework for running functional tests against the Jaspi runtime.</description>
+    <name>Wren Security Commons Authn. - JASPI (JSR-196) Functional Tests</name>
+    <description>
+        Functional Test framework for running functional tests against the JASPI runtime.
+    </description>
 
     <properties>
         <servlet.http.port>18080</servlet.http.port>
@@ -44,31 +47,39 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-install-plugin</artifactId>
+
                 <configuration>
                     <skip>true</skip>
                 </configuration>
             </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-deploy-plugin</artifactId>
+
                 <configuration>
                     <skip>true</skip>
                 </configuration>
             </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+
                 <configuration>
                     <workingDirectory>target/</workingDirectory>
                 </configuration>
             </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+
                 <configuration>
                     <includes>
                         <include>**/*.java</include>
                     </includes>
+
                     <systemPropertyVariables>
                         <HTTP_PORT>${servlet.http.port}</HTTP_PORT>
                         <HOSTNAME>${hostname}</HOSTNAME>
@@ -76,10 +87,12 @@
                         <ROOT_PATH>${project.build.directory}</ROOT_PATH>
                     </systemPropertyVariables>
                 </configuration>
+
                 <executions>
                     <execution>
                         <id>integration-test</id>
                         <phase>integration-test</phase>
+
                         <goals>
                             <goal>integration-test</goal>
                             <goal>verify</goal>
@@ -95,29 +108,35 @@
             <groupId>org.forgerock.commons</groupId>
             <artifactId>forgerock-jaspi-runtime</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.forgerock.http</groupId>
             <artifactId>chf-http-servlet</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.forgerock.http</groupId>
             <artifactId>chf-http-core</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.forgerock.commons</groupId>
             <artifactId>json-resource-http</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.forgerock.commons</groupId>
             <artifactId>forgerock-guice-core</artifactId>
             <version>${forgerock.guice.version}</version>
         </dependency>
+
         <dependency>
             <groupId>org.forgerock.commons</groupId>
             <artifactId>forgerock-guice-test</artifactId>
             <version>${forgerock.guice.version}</version>
             <scope>test</scope>
         </dependency>
+
         <dependency>
             <groupId>com.jayway.restassured</groupId>
             <artifactId>rest-assured</artifactId>

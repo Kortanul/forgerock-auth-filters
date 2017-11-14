@@ -13,6 +13,7 @@
   * information: "Portions copyright [year] [name of copyright owner]".
   *
   * Copyright 2013-2015 ForgeRock AS.
+  * Portions Copyright 2017 Wren Security.
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
@@ -26,7 +27,10 @@
     <artifactId>forgerock-jaspi-runtime</artifactId>
     <packaging>bundle</packaging>
 
-    <name>ForgeRock JASPI (JSR-196) Runtime</name>
+    <name>Wren Security Commons Authn. - JASPI (JSR-196) Runtime</name>
+    <description>
+        Provides a runtime for asynchronous and improved JASPI-like message authentication.
+    </description>
 
     <build>
         <plugins>
